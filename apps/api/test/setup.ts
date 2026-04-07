@@ -1,0 +1,11 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { config } from "dotenv";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+config({ path: path.resolve(here, "../../.env") });
+
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  process.env.JWT_SECRET = "vitest-jwt-secret-min-32-chars-x";
+}

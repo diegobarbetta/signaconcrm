@@ -1,0 +1,2 @@
+ALTER TABLE "client_services"
+ADD COLUMN "amount" DECIMAL(14, 2) NOT NULL DEFAULT 0;

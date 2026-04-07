@@ -1,0 +1,295 @@
+// Prisma 6.x — ver comentário na migration inicial sobre v7.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String           @unique
+  /// Escopo de dados por perfil: own | team | all (Story 1.5)
+  dataScope       String           @map("data_scope")
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid()) @db.Uuid
+  code            String           @unique
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId         String     @map("role_id") @db.Uuid
+  permissionId   String     @map("permission_id") @db.Uuid
+  role           Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission     Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  roleId       String     @map("role_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id])
+  status       String
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sessions          UserSession[]
+  auditLogs         AuditLog[]
+  leadStatusEvents  LeadStatusEvent[]
+  assignedLeads     Lead[] @relation("LeadAssignee")
+  assignedDemands     Demand[] @relation("DemandAssignee")
+  assignedTasks       Task[]   @relation("TaskAssignee")
+  leadNotesCreated    LeadNote[]
+
+  @@index([roleId])
+  @@map("users")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_log")
+}
+
+model UserSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @map("refresh_token_hash")
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model WhatsAppMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  providerMessageId String   @unique @map("provider_message_id")
+  waId              String   @map("wa_id")
+  phoneNumberId     String   @map("phone_number_id")
+  contactId         String   @map("contact_id") @db.Uuid
+  conversationId    String   @map("conversation_id") @db.Uuid
+  contact           WhatsAppContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation      WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageType       String   @map("message_type")
+  textBody          String?  @map("text_body")
+  providerTimestamp DateTime? @map("provider_timestamp") @db.Timestamptz(6)
+  receivedAt        DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  followUpTask      Task?    @relation("MessageFollowUpTask")
+
+  @@index([waId, receivedAt])
+  @@index([phoneNumberId, receivedAt])
+  @@index([conversationId, receivedAt])
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppContact {
+  id        String   @id @default(uuid()) @db.Uuid
+  waId      String   @unique @map("wa_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversations WhatsAppConversation[]
+  messages      WhatsAppMessage[]
+  lead          Lead? /// no máximo um lead por contacto WhatsApp
+  clients       Client[]
+
+  @@map("whatsapp_contacts")
+}
+
+model WhatsAppConversation {
+  id                   String   @id @default(uuid()) @db.Uuid
+  contactId            String   @map("contact_id") @db.Uuid
+  contact              WhatsAppContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  phoneNumberId        String   @map("phone_number_id")
+  unanswered           Boolean  @default(true)
+  assignedUserId       String?  @map("assigned_user_id") @db.Uuid
+  lastProviderTimestamp DateTime? @map("last_provider_timestamp") @db.Timestamptz(6)
+  lastMessagePreview   String?  @map("last_message_preview")
+  lastActivityAt       DateTime @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  messages WhatsAppMessage[]
+  tasks    Task[]
+
+  @@unique([contactId, phoneNumberId])
+  @@index([phoneNumberId, lastActivityAt])
+  @@index([unanswered, lastActivityAt])
+  @@map("whatsapp_conversations")
+}
+
+model Lead {
+  id               String   @id @default(uuid()) @db.Uuid
+  /// Opcional: leads criados só no CRM (sem WhatsApp) até conversão ou futura ligação.
+  contactId        String?  @unique @map("contact_id") @db.Uuid
+  contact          WhatsAppContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// Nome para identificação quando não há vínculo WhatsApp ou como complemento.
+  displayName      String?  @map("display_name") @db.VarChar(255)
+  city             String?  @db.VarChar(128)
+  email            String?  @db.VarChar(255)
+  phoneSecondary   String?  @map("phone_secondary") @db.VarChar(64)
+  notes            String?  @db.Text
+  potentialValue   Decimal? @map("potential_value") @db.Decimal(14, 2)
+  source           String
+  status           String
+  assignedUserId   String?  @map("assigned_user_id") @db.Uuid
+  assignedUser     User?    @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  statusEvents     LeadStatusEvent[]
+  noteEntries      LeadNote[]
+  client           Client?
+  demands          Demand[]
+  tasks            Task[]
+
+  @@index([status, createdAt])
+  @@index([assignedUserId])
+  @@index([email])
+  @@map("leads")
+}
+
+/// Notas do lead com data de registo (append-only).
+model LeadNote {
+  id              String   @id @default(uuid()) @db.Uuid
+  leadId          String   @map("lead_id") @db.Uuid
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  body            String   @db.Text
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdBy       User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([leadId, createdAt])
+  @@map("lead_notes")
+}
+
+model Client {
+  id           String   @id @default(uuid()) @db.Uuid
+  leadId       String   @unique @map("lead_id") @db.Uuid
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactId    String   @map("contact_id") @db.Uuid
+  contact      WhatsAppContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  displayName  String?  @map("display_name")
+  notes        String?  @db.Text
+  /// Referência do valor de prospecção/fecho herdado do lead.
+  generatedValue Decimal? @map("generated_value") @db.Decimal(14, 2)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  services     ClientService[]
+  demands      Demand[]
+  tasks        Task[]
+
+  @@index([contactId])
+  @@map("clients")
+}
+
+/// Serviço vinculado a um cliente (Epic 4).
+model ClientService {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  status    String
+  amount    Decimal  @default(0) @db.Decimal(14, 2)
+  /// Data de renovação / fim de vigência para alertas (opcional).
+  renewsAt  DateTime? @map("renews_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([clientId, createdAt])
+  @@index([renewsAt])
+  @@map("client_services")
+}
+
+model LeadStatusEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  leadId          String   @map("lead_id") @db.Uuid
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStatus      String?  @map("from_status")
+  toStatus        String   @map("to_status")
+  changedByUserId String?  @map("changed_by_user_id") @db.Uuid
+  changedBy       User?    @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([leadId, createdAt])
+  @@map("lead_status_events")
+}
+
+model Demand {
+  id             String   @id @default(uuid()) @db.Uuid
+  title          String
+  description    String?  @db.Text
+  dueAt          DateTime @map("due_at") @db.Timestamptz(6)
+  status         String
+  assignedUserId String?  @map("assigned_user_id") @db.Uuid
+  assignedUser   User?    @relation("DemandAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  leadId         String?  @map("lead_id") @db.Uuid
+  lead           Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  clientId       String?  @map("client_id") @db.Uuid
+  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  tasks          Task[]
+
+  @@index([status, dueAt])
+  @@index([assignedUserId, dueAt])
+  @@index([leadId, dueAt])
+  @@index([clientId, dueAt])
+  @@map("demands")
+}
+
+/// Tarefas operacionais / follow-ups (Epic 6).
+model Task {
+  id               String   @id @default(uuid()) @db.Uuid
+  title            String
+  status           String
+  dueAt            DateTime? @map("due_at") @db.Timestamptz(6)
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6)
+  assignedUserId   String?  @map("assigned_user_id") @db.Uuid
+  assignedUser     User?    @relation("TaskAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  conversationId   String?  @map("conversation_id") @db.Uuid
+  conversation     WhatsAppConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  leadId           String?  @map("lead_id") @db.Uuid
+  lead             Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  clientId         String?  @map("client_id") @db.Uuid
+  client           Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  demandId         String?  @map("demand_id") @db.Uuid
+  demand           Demand?  @relation(fields: [demandId], references: [id], onDelete: SetNull)
+  /// manual | inbound_message
+  source           String?  @map("source")
+  sourceMessageId  String?  @unique @map("source_message_id") @db.Uuid
+  sourceMessage    WhatsAppMessage? @relation("MessageFollowUpTask", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, dueAt])
+  @@index([assignedUserId, dueAt])
+  @@index([conversationId, createdAt])
+  @@index([leadId, createdAt])
+  @@index([clientId, createdAt])
+  @@map("tasks")
+}

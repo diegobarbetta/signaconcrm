@@ -1,0 +1,25 @@
+# PostgreSQL local para desenvolvimento (Story 0.2).
+# Variáveis: copie .env.example → .env ou use os defaults abaixo.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: signacon-crm-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-signacon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-signacon_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-signacon_crm}
+    volumes:
+      - signacon_crm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  signacon_crm_pgdata:

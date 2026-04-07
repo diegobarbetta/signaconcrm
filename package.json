@@ -1,0 +1,31 @@
+{
+  "name": "signacon-crm",
+  "private": true,
+  "version": "0.0.1",
+  "description": "SignaCon CRM — monorepo (API Fastify + web React/Vite)",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "prisma",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "dev": "pnpm --filter \"@signacon/*\" run --parallel dev",
+    "dev:api": "pnpm --filter @signacon/api dev",
+    "dev:web": "pnpm --filter @signacon/web dev",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v",
+    "db:generate": "pnpm --filter @signacon/api db:generate",
+    "db:migrate": "pnpm --filter @signacon/api db:migrate",
+    "db:migrate:deploy": "pnpm --filter @signacon/api db:migrate:deploy",
+    "db:seed": "pnpm --filter @signacon/api db:seed",
+    "test": "pnpm --filter @signacon/api test"
+  }
+}
